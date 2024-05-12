@@ -1,0 +1,233 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <limits.h>
+
+#define MAX_PARTITIONS 10
+#define MAX_NAME_LENGTH 20
+#define MAX_WAITING_PROCESSES 10
+
+typedef struct {
+    int id;
+    int size;
+    bool allocated;
+    char process_name[MAX_NAME_LENGTH];
+} Partition;
+
+typedef struct {
+    Partition partitions[MAX_PARTITIONS];
+    int count;
+} PartitionDescriptionTable;
+
+typedef struct {
+    char process_name[MAX_NAME_LENGTH];
+    int size;
+} WaitingProcess;
+
+typedef struct {
+    WaitingProcess processes[MAX_WAITING_PROCESSES];
+    int front;
+    int rear;
+} WaitingQueue;
+
+PartitionDescriptionTable pdt;
+WaitingQueue waitingQueue;
+
+void initPDT() {
+    int partitionSizes[MAX_PARTITIONS] = {100, 200, 150, 300, 250, 350, 180, 220, 280, 320}; // Example partition sizes
+    for (int i = 0; i < MAX_PARTITIONS; i++) {
+        pdt.partitions[i].id = i;
+        pdt.partitions[i].size = partitionSizes[i];
+        pdt.partitions[i].allocated = false;
+        strcpy(pdt.partitions[i].process_name, "");
+    }
+    pdt.count = MAX_PARTITIONS;
+}
+
+void initWaitingQueue() {
+    waitingQueue.front = -1;
+    waitingQueue.rear = -1;
+}
+
+bool isWaitingQueueFull() {
+    return (waitingQueue.rear == MAX_WAITING_PROCESSES - 1);
+}
+
+bool isWaitingQueueEmpty() {
+    return (waitingQueue.front == -1 || waitingQueue.front > waitingQueue.rear);
+}
+
+void enqueueWaitingProcess(char* process_name, int size) {
+    if (isWaitingQueueFull()) {
+        printf("Waiting queue is full. Cannot enqueue process %s\n", process_name);
+        return;
+    }
+    WaitingProcess newProcess;
+    strcpy(newProcess.process_name, process_name);
+    newProcess.size = size;
+    if (isWaitingQueueEmpty()) {
+        waitingQueue.front = 0;
+        waitingQueue.rear = 0;
+    } else {
+        waitingQueue.rear++;
+    }
+    waitingQueue.processes[waitingQueue.rear] = newProcess;
+    printf("Process %s enqueued for memory allocation\n", process_name);
+}
+
+WaitingProcess dequeueWaitingProcess() {
+    if (isWaitingQueueEmpty()) {
+        printf("Waiting queue is empty. Cannot dequeue process\n");
+        WaitingProcess emptyProcess;
+        strcpy(emptyProcess.process_name, "");
+        emptyProcess.size = 0;
+        return emptyProcess;
+    }
+    WaitingProcess dequeuedProcess = waitingQueue.processes[waitingQueue.front];
+    if (waitingQueue.front == waitingQueue.rear) {
+        waitingQueue.front = -1;
+        waitingQueue.rear = -1;
+    } else {
+        waitingQueue.front++;
+    }
+    return dequeuedProcess;
+}
+
+int findPartition(int size, char allocationStrategy) {
+    int partitionIndex = -1;
+    if (allocationStrategy == 'F') {
+        for (int i = 0; i < pdt.count; i++) {
+            if (!pdt.partitions[i].allocated && pdt.partitions[i].size >= size) {
+                partitionIndex = i;
+                break;
+            }
+        }
+    } else if (allocationStrategy == 'B') {
+        int minSize = INT_MAX;
+        for (int i = 0; i < pdt.count; i++) {
+            if (!pdt.partitions[i].allocated && pdt.partitions[i].size >= size &&
+                pdt.partitions[i].size < minSize) {
+                minSize = pdt.partitions[i].size;
+                partitionIndex = i;
+            }
+        }
+    }
+    return partitionIndex;
+}
+
+void allocateMemory(char* process_name, int size, char allocationStrategy) {
+    int partitionIndex = findPartition(size, allocationStrategy);
+    if (partitionIndex != -1) {
+        pdt.partitions[partitionIndex].allocated = true;
+        pdt.partitions[partitionIndex].size = size;
+        strcpy(pdt.partitions[partitionIndex].process_name, process_name);
+        printf("Allocated memory for process %s in partition %d\n", process_name, partitionIndex);
+    } else {
+        enqueueWaitingProcess(process_name, size);
+    }
+}
+
+void deallocateMemory(char* process_name) {
+    for (int i = 0; i < pdt.count; i++) {
+        if (strcmp(pdt.partitions[i].process_name, process_name) == 0) {
+            pdt.partitions[i].allocated = false;
+            pdt.partitions[i].size = 0;
+            strcpy(pdt.partitions[i].process_name, "");
+            printf("Memory deallocated for process %s in partition %d\n", process_name, i);
+            return;
+        }
+    }
+    printf("Process %s not found\n", process_name);
+}
+
+void displayMemoryStatus() {
+    printf("Partition\tSize\tAllocated\tProcess Name\n");
+    for (int i = 0; i < pdt.count; i++) {
+        printf("%d\t\t\t%d\t\t%s\t\t\t%s\n", pdt.partitions[i].id, pdt.partitions[i].size,
+               pdt.partitions[i].allocated ? "Yes" : "No", pdt.partitions[i].process_name);
+    }
+}
+
+int calculateInternalFragmentation() {
+    int totalInternalFragmentation = 0;
+    for (int i = 0; i < pdt.count; i++) {
+        if (pdt.partitions[i].allocated) {
+            totalInternalFragmentation += pdt.partitions[i].size;
+        }
+    }
+    return totalInternalFragmentation;
+}
+
+int calculateExternalFragmentation() {
+    int totalExternalFragmentation = 0;
+    bool inGap = false;
+    int gapSize = 0;
+    for (int i = 0; i < pdt.count; i++) {
+        if (!pdt.partitions[i].allocated) {
+            if (!inGap) {
+                inGap = true;
+                gapSize = pdt.partitions[i].size;
+            } else {
+                gapSize += pdt.partitions[i].size;
+            }
+        } else {
+            if (inGap) {
+                totalExternalFragmentation += gapSize;
+                inGap = false;
+            }
+        }
+    }
+    return totalExternalFragmentation;
+}
+
+int main() {
+    initPDT();
+    initWaitingQueue();
+    char option;
+    do {
+        printf("\nMemory Allocation Simulation\n");
+        printf("1. Allocate Memory\n");
+        printf("2. Deallocate Memory\n");
+        printf("3. Display Memory Status\n");
+        printf("4. Compute Fragmentation\n");
+        printf("5. Exit\n");
+        printf("Enter option: ");
+        scanf(" %c", &option);
+        switch (option) {
+            case '1': {
+                char process_name[MAX_NAME_LENGTH];
+                int size;
+                char allocationStrategy;
+                printf("Enter process name: ");
+                scanf("%s", process_name);
+                printf("Enter size: ");
+                scanf("%d", &size);
+                printf("Enter allocation strategy (F for First Fit, B for Best Fit): ");
+                scanf(" %c", &allocationStrategy);
+                allocateMemory(process_name, size, allocationStrategy);
+                break;
+            }
+            case '2': {
+                char process_name[MAX_NAME_LENGTH];
+                printf("Enter process name to deallocate: ");
+                scanf("%s", process_name);
+                deallocateMemory(process_name);
+                break;
+            }
+            case '3':
+                displayMemoryStatus();
+                break;
+            case '4':
+                printf("Internal Fragmentation: %d\n", calculateInternalFragmentation());
+                printf("External Fragmentation: %d\n", calculateExternalFragmentation());
+                break;
+            case '5':
+                printf("Exiting program...\n");
+                break;
+            default:
+                printf("Invalid option. Please try again.\n");
+        }
+    } while (option != '5');
+    return 0;
+}
